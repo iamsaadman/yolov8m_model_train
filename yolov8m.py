@@ -176,7 +176,7 @@ if missing_data_dirs:
 #    (also walks subdirectories so nested structures are handled).
 #  Images are read only from RAW_DIR and XML files only from ANNO_DIR.
 # ============================================================
-print("\n[1/6] Collecting co-located image+XML pairs ...")
+print("\n[1/6] Collecting image+XML pairs ...")
 
 IMG_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -192,9 +192,30 @@ img_index  = _build_stem_index(RAW_DIR,  IMG_EXTS)
 xml_index  = _build_stem_index(ANNO_DIR, {".xml"})
 
 matched = []
+used_xmls = set()
 for stem, img_p in img_index.items():
     if stem in xml_index:
-        matched.append((str(img_p), str(xml_index[stem])))
+        xml_p = xml_index[stem]
+        matched.append((str(img_p), str(xml_p)))
+        used_xmls.add(xml_p)
+
+# Some Pascal VOC datasets name XML files differently but store the real image
+# filename inside <filename>. Fall back to that before giving up.
+for xml_p in xml_index.values():
+    if xml_p in used_xmls:
+        continue
+    try:
+        root = ET.parse(xml_p).getroot()
+        filename_el = root.find("filename")
+        if filename_el is None or not filename_el.text:
+            continue
+        img_stem = Path(filename_el.text.strip()).stem.lower()
+        img_p = img_index.get(img_stem)
+        if img_p:
+            matched.append((str(img_p), str(xml_p)))
+            used_xmls.add(xml_p)
+    except Exception:
+        continue
 
 print(f"  Matched pairs: {len(matched)}")
 if not matched:
@@ -202,7 +223,8 @@ if not matched:
         "No image+XML pairs found.\n"
         f"  Searched images in : {RAW_DIR}\n"
         f"  Searched XMLs in   : {ANNO_DIR}\n"
-        "  Make sure filenames match (same stem, e.g. img001.jpg / img001.xml)."
+        "  Make sure XML <filename> values point to images in Raw Images, or use matching stems "
+        "(e.g. img001.jpg / img001.xml)."
     )
 
 # ============================================================
