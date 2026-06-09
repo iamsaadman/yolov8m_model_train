@@ -1,28 +1,25 @@
 # ============================================================
-#  BTF YOLOv8m PHASE 1
-#  VS CODE / LOCAL MACHINE VERSION
+#  BTF YOLOv8m PHASE 1  —  VS CODE / LOCAL MACHINE VERSION
 #  Compatible: torch>=2.0 | ultralytics latest
-#  GPU: Any CUDA-capable GPU (tested on Tesla P100, RTX series)
 # ============================================================
 #
-#  FOLDER STRUCTURE EXPECTED:
-#  project_root/
-#  ├── Annotated Images/    ← XML annotation files (Pascal VOC format)
-#  ├── Raw Images/          ← Corresponding image files (.jpg/.jpeg/.png)
-#  ├── yolov8m.py           ← this script
+#  FOLDER STRUCTURE (script sits at the root):
+#
+#  Root/
+#  ├── Raw Images/
+#  │   └── Location 1/
+#  │       ├── Double Lane/
+#  │       │   └── 1-LOC1-0700-0800-DL/   ← .jpg / .jpeg / .png files
+#  │       └── Single Lane/ ...
+#  ├── Annotated Images/
+#  │   └── Location 1/
+#  │       ├── Double Lane/
+#  │       │   └── 1-LOC1-0700-0800-DL/   ← .xml files (same sub-path)
+#  │       └── Single Lane/ ...
+#  ├── yolov8m.py          ← this script
 #  └── requirements.txt
 #
-#  SET ENVIRONMENT VARIABLES (optional overrides):
-#    BTF_RAW_DIR        → path to raw images folder
-#    BTF_ANNO_DIR       → path to annotated images (XMLs) folder
-#    BTF_WORK_DIR       → where processed dataset is written
-#    BTF_RUNS_DIR       → where training runs are saved
-#    BTF_EPOCHS         → number of training epochs (default: 100)
-#    BTF_BATCH          → batch size (default: 8)
-#    BTF_IMG_SIZE       → input image size (default: 832)
-#    BTF_DEVICE         → cuda device index or "cpu" (default: 0)
-#    BTF_SPLIT_RATIO    → train/val split ratio (default: 0.85)
-#
+#  Just run:  python yolov8m.py
 # ============================================================
 
 import os
@@ -45,70 +42,21 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 # ============================================================
-#  RESOLVE PATHS — script lives next to the two data folders
+#  CONFIG
 # ============================================================
-SCRIPT_DIR = Path(__file__).resolve().parent
+SCRIPT_DIR  = Path(__file__).resolve().parent
 
-def _env(key, default):
-    return os.environ.get(key, str(default))
+RAW_DIR     = SCRIPT_DIR / "Raw Images"
+ANNO_DIR    = SCRIPT_DIR / "Annotated Images"
+WORK_DIR    = SCRIPT_DIR / "processed_dataset"
+RUNS_DIR    = SCRIPT_DIR / "runs"
 
-def _resolve_data_dir(env_key: str, folder_name: str) -> Path:
-    configured = os.environ.get(env_key)
-    if configured:
-        return Path(configured).expanduser().resolve()
+IMG_SIZE    = 832
+SPLIT_RATIO = 0.85
+RANDOM_SEED = 42
+EPOCHS      = 100
+BATCH       = 8
 
-    exact = SCRIPT_DIR / folder_name
-    if exact.exists():
-        return exact
-
-    # Windows is usually case-insensitive, but this keeps the message nice and
-    # also helps if the project is later run from a case-sensitive filesystem.
-    wanted = folder_name.casefold()
-    for child in SCRIPT_DIR.iterdir():
-        if child.is_dir() and child.name.casefold() == wanted:
-            return child
-    return exact
-
-RAW_DIR    = _resolve_data_dir("BTF_RAW_DIR", "Raw Images")
-ANNO_DIR   = _resolve_data_dir("BTF_ANNO_DIR", "Annotated Images")
-WORK_DIR   = Path(_env("BTF_WORK_DIR",  SCRIPT_DIR / "processed_dataset"))
-RUNS_DIR   = Path(_env("BTF_RUNS_DIR",  SCRIPT_DIR / "runs"))
-OUTPUT_DIR = SCRIPT_DIR  # Phase-level result files land here
-
-IMG_SIZE     = int(_env("BTF_IMG_SIZE",    832))
-SPLIT_RATIO  = float(_env("BTF_SPLIT_RATIO", 0.85))
-RANDOM_SEED  = 42
-EPOCHS       = int(_env("BTF_EPOCHS",  100))
-BATCH        = int(_env("BTF_BATCH",   8))
-DEVICE_CFG   = _env("BTF_DEVICE", "0")
-
-# ============================================================
-#  STARTUP — library versions & GPU check
-# ============================================================
-print(f"ultralytics : {ultralytics.__version__}")
-print(f"torch       : {torch.__version__}")
-print(f"CUDA avail  : {torch.cuda.is_available()}")
-
-if DEVICE_CFG.lower() == "cpu":
-    DEVICE = "cpu"
-    print("Device      : CPU (forced via BTF_DEVICE=cpu)")
-elif torch.cuda.is_available():
-    DEVICE = int(DEVICE_CFG)
-    print(f"GPU         : {torch.cuda.get_device_name(DEVICE)}")
-    print(f"sm_cap      : {torch.cuda.get_device_capability(DEVICE)}")
-    try:
-        _ = torch.zeros(1).cuda()
-        print("GPU test    : ✅ WORKING")
-    except Exception as e:
-        raise RuntimeError(f"GPU broken: {e}")
-    torch.backends.cudnn.benchmark = True
-else:
-    DEVICE = "cpu"
-    print("⚠️  No CUDA GPU found — falling back to CPU (training will be slow).")
-
-# ============================================================
-#  CLASS MAP  (identical to original)
-# ============================================================
 CLASS_MAP = {
     "car":0,        "Car":0,
     "cng":0,        "Cng":0,        "CNG":0,
@@ -135,6 +83,37 @@ random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 
 # ============================================================
+#  GPU CHECK
+# ============================================================
+print(f"ultralytics : {ultralytics.__version__}")
+print(f"torch       : {torch.__version__}")
+print(f"CUDA        : {torch.version.cuda}")
+
+if torch.cuda.is_available():
+    DEVICE = 0
+    print(f"GPU         : {torch.cuda.get_device_name(0)}")
+    print(f"sm_cap      : {torch.cuda.get_device_capability(0)}")
+    try:
+        _ = torch.zeros(1).cuda()
+        print("GPU test    : ✅ WORKING")
+    except Exception as e:
+        raise RuntimeError(f"GPU broken: {e}")
+    torch.backends.cudnn.benchmark = True
+else:
+    DEVICE = "cpu"
+    print("⚠️  No CUDA GPU found — running on CPU (training will be slow).")
+
+# ============================================================
+#  SANITY CHECK
+# ============================================================
+for d, label in [(RAW_DIR, "Raw Images"), (ANNO_DIR, "Annotated Images")]:
+    if not d.is_dir():
+        raise RuntimeError(
+            f"Folder not found: {d}\n"
+            f"Make sure '{label}' sits in the same directory as yolov8m.py"
+        )
+
+# ============================================================
 #  CREATE DIRECTORY STRUCTURE
 # ============================================================
 for sp in ("train", "valid"):
@@ -145,90 +124,89 @@ RUNS_DIR.mkdir(parents=True, exist_ok=True)
 print("=" * 55)
 print("  BTF YOLOv8m PIPELINE — PHASE 1")
 print("=" * 55)
-print(f"  Raw images  : {RAW_DIR}")
-print(f"  Annotations : {ANNO_DIR}")
-print(f"  Work dir    : {WORK_DIR}")
-print(f"  Runs dir    : {RUNS_DIR}")
-print(f"  Model       : yolov8m.pt | Epochs: {EPOCHS} | Batch: {BATCH}")
-print(f"  ImgSize     : {IMG_SIZE}  | Device: {DEVICE}")
-
-missing_data_dirs = []
-if not RAW_DIR.is_dir():
-    missing_data_dirs.append(f"Raw images folder not found: {RAW_DIR}")
-if not ANNO_DIR.is_dir():
-    missing_data_dirs.append(f"Annotation folder not found: {ANNO_DIR}")
-if missing_data_dirs:
-    raise RuntimeError(
-        "Dataset folders are missing.\n"
-        + "\n".join(f"  - {msg}" for msg in missing_data_dirs)
-        + "\n\nExpected layout:\n"
-        f"  {SCRIPT_DIR}\\Raw Images\\        -> .jpg/.jpeg/.png files\n"
-        f"  {SCRIPT_DIR}\\Annotated Images\\  -> .xml files\n"
-        "\nYou can also override paths with BTF_RAW_DIR and BTF_ANNO_DIR."
-    )
+print(f"  Model  : yolov8m.pt | Epochs: {EPOCHS} | Batch: {BATCH}")
+print(f"  ImgSize: {IMG_SIZE}  | Device: {DEVICE}")
 
 # ============================================================
-#  STEP 1 — Co-located image+XML pairs
+#  STEP 1 — Collect image + XML pairs
 #
-#  Strategy (mirrors original):
-#  • Walk ANNO_DIR for XML files.
-#  • For each XML, look for an image with the same stem in RAW_DIR
-#    (also walks subdirectories so nested structures are handled).
-#  Images are read only from RAW_DIR and XML files only from ANNO_DIR.
+#  The dataset has a mirrored folder tree:
+#    Raw Images/Location X/Lane Type/Session/  → images
+#    Annotated Images/Location X/Lane Type/Session/  → XMLs
+#
+#  Strategy:
+#  1. Walk Annotated Images for every XML.
+#  2. Compute its relative path inside Annotated Images.
+#  3. Look in the same relative sub-folder inside Raw Images
+#     for an image with the same stem.
+#  4. Fallback: scan all of Raw Images by stem if not found
+#     at the mirrored path (handles any naming inconsistency).
 # ============================================================
 print("\n[1/6] Collecting image+XML pairs ...")
 
 IMG_EXTS = {".jpg", ".jpeg", ".png"}
 
-def _build_stem_index(root_dir: Path, exts: set) -> dict:
-    """Return {stem_lower: absolute_path} for all files with given extensions."""
-    index = {}
-    for p in root_dir.rglob("*"):
-        if p.suffix.lower() in exts:
-            index[p.stem.lower()] = p
-    return index
+# Build a full stem → path index for every image in Raw Images
+raw_img_index = {}
+for p in RAW_DIR.rglob("*"):
+    if p.suffix.lower() in IMG_EXTS:
+        raw_img_index[p.stem.lower()] = p
 
-img_index  = _build_stem_index(RAW_DIR,  IMG_EXTS)
-xml_index  = _build_stem_index(ANNO_DIR, {".xml"})
+# Collect all XMLs from Annotated Images
+all_xmls = [p for p in ANNO_DIR.rglob("*") if p.suffix.lower() == ".xml"]
 
 matched = []
-used_xmls = set()
-for stem, img_p in img_index.items():
-    if stem in xml_index:
-        xml_p = xml_index[stem]
+unmatched_xmls = 0
+
+for xml_p in all_xmls:
+    img_stem = xml_p.stem.lower()
+
+    # --- Primary: mirror the relative sub-path into Raw Images ---
+    rel = xml_p.relative_to(ANNO_DIR)          # e.g. Location 1/Double Lane/session/foo.xml
+    mirror_dir = RAW_DIR / rel.parent           # Raw Images/Location 1/Double Lane/session/
+    img_p = None
+
+    if mirror_dir.is_dir():
+        for ext in IMG_EXTS:
+            candidate = mirror_dir / (xml_p.stem + ext)
+            if candidate.exists():
+                img_p = candidate
+                break
+        # Also try case-insensitive match within that folder
+        if img_p is None:
+            for f in mirror_dir.iterdir():
+                if f.suffix.lower() in IMG_EXTS and f.stem.lower() == img_stem:
+                    img_p = f
+                    break
+
+    # --- Fallback: search entire Raw Images by stem ---
+    if img_p is None:
+        img_p = raw_img_index.get(img_stem)
+
+    if img_p is not None:
         matched.append((str(img_p), str(xml_p)))
-        used_xmls.add(xml_p)
+    else:
+        unmatched_xmls += 1
 
-# Some Pascal VOC datasets name XML files differently but store the real image
-# filename inside <filename>. Fall back to that before giving up.
-for xml_p in xml_index.values():
-    if xml_p in used_xmls:
-        continue
-    try:
-        root = ET.parse(xml_p).getroot()
-        filename_el = root.find("filename")
-        if filename_el is None or not filename_el.text:
-            continue
-        img_stem = Path(filename_el.text.strip()).stem.lower()
-        img_p = img_index.get(img_stem)
-        if img_p:
-            matched.append((str(img_p), str(xml_p)))
-            used_xmls.add(xml_p)
-    except Exception:
-        continue
+print(f"  Images in Raw Images     : {len(raw_img_index)}")
+print(f"  XMLs in Annotated Images : {len(all_xmls)}")
+print(f"  Matched pairs            : {len(matched)}")
+if unmatched_xmls:
+    print(f"  ⚠️  XMLs with no matching image: {unmatched_xmls}")
 
-print(f"  Matched pairs: {len(matched)}")
 if not matched:
+    sample_imgs = [p.name for p in list(raw_img_index.values())[:5]]
+    sample_xmls = [p.name for p in all_xmls[:5]]
     raise RuntimeError(
-        "No image+XML pairs found.\n"
-        f"  Searched images in : {RAW_DIR}\n"
-        f"  Searched XMLs in   : {ANNO_DIR}\n"
-        "  Make sure XML <filename> values point to images in Raw Images, or use matching stems "
-        "(e.g. img001.jpg / img001.xml)."
+        "No image+XML pairs could be matched.\n\n"
+        f"  Sample image names : {sample_imgs}\n"
+        f"  Sample XML names   : {sample_xmls}\n\n"
+        "  Expected: Raw Images and Annotated Images share the same\n"
+        "  subfolder structure with matching filenames at each level."
     )
 
 # ============================================================
-#  STEP 2 — Remove duplicates  (identical to original)
+#  STEP 2 — Remove duplicates
 # ============================================================
 print("\n[2/6] Removing duplicates ...")
 seen, unique, dups = set(), [], 0
@@ -245,83 +223,70 @@ for img_p, xml_p in tqdm(matched, desc="  hashing"):
 print(f"  Duplicates: {dups} | Unique: {len(unique)} ✅")
 
 # ============================================================
-#  STEP 3 — XML → YOLO conversion  (identical to original)
+#  STEP 3 — XML → YOLO conversion
 # ============================================================
 unrecognized = collections.Counter()
 
-def xml_to_yolo(xml_path: str) -> list:
+def xml_to_yolo(xml_path):
     lines = []
     tree  = ET.parse(xml_path)
     root  = tree.getroot()
     size  = root.find("size")
-    if size is None:
-        return []
+    if size is None: return []
     W = int(float(size.find("width").text))
     H = int(float(size.find("height").text))
-    if W <= 0 or H <= 0:
-        return []
+    if W <= 0 or H <= 0: return []
     for obj in root.findall("object"):
         name_el = obj.find("name")
-        if name_el is None or not name_el.text:
-            continue
+        if name_el is None or not name_el.text: continue
         raw = name_el.text.strip()
         cls = CLASS_MAP.get(raw, CLASS_MAP.get(raw.lower()))
         if cls is None:
-            unrecognized[raw] += 1
-            continue
+            unrecognized[raw] += 1; continue
         bb = obj.find("bndbox")
-        if bb is None:
-            continue
-        xmin = float(bb.find("xmin").text)
-        ymin = float(bb.find("ymin").text)
-        xmax = float(bb.find("xmax").text)
-        ymax = float(bb.find("ymax").text)
-        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
-        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
-        if xmax <= xmin or ymax <= ymin:
-            continue
-        cx = min(max(((xmin + xmax) / 2) / W, 0.001), 0.999)
-        cy = min(max(((ymin + ymax) / 2) / H, 0.001), 0.999)
-        bw = min(max((xmax - xmin) / W,        0.001), 0.999)
-        bh = min(max((ymax - ymin) / H,        0.001), 0.999)
+        if bb is None: continue
+        xmin=float(bb.find("xmin").text); ymin=float(bb.find("ymin").text)
+        xmax=float(bb.find("xmax").text); ymax=float(bb.find("ymax").text)
+        xmin,xmax=min(xmin,xmax),max(xmin,xmax)
+        ymin,ymax=min(ymin,ymax),max(ymin,ymax)
+        if xmax<=xmin or ymax<=ymin: continue
+        cx=min(max(((xmin+xmax)/2)/W,0.001),0.999)
+        cy=min(max(((ymin+ymax)/2)/H,0.001),0.999)
+        bw=min(max((xmax-xmin)/W,0.001),0.999)
+        bh=min(max((ymax-ymin)/H,0.001),0.999)
         lines.append(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
     return lines
 
 # ============================================================
-#  STEP 4 — Build dataset + oversample bike/bus  (identical)
+#  STEP 4 — Build dataset + oversample bike/bus
 # ============================================================
 print("\n[3/6] Building YOLO dataset ...")
 random.shuffle(unique)
 cut    = int(len(unique) * SPLIT_RATIO)
 splits = {"train": unique[:cut], "valid": unique[cut:]}
 skipped = 0
-label_counts    = {"train": collections.Counter(), "valid": collections.Counter()}
+label_counts  = {"train": collections.Counter(), "valid": collections.Counter()}
 converted_train = []
 
 for sp, dataset in splits.items():
     for img_path, xml_path in tqdm(dataset, desc=f"  {sp}"):
         try:
             lines = xml_to_yolo(xml_path)
-            if not lines:
-                skipped += 1
-                continue
+            if not lines: skipped += 1; continue
             img  = Image.open(img_path).convert("RGB")
             stem = os.path.splitext(os.path.basename(img_path))[0]
             img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS).save(
-                str(WORK_DIR / "images" / sp / (stem + ".jpg")),
-                "JPEG", quality=95
-            )
+                str(WORK_DIR / "images" / sp / (stem + ".jpg")), "JPEG", quality=95)
             with open(WORK_DIR / "labels" / sp / (stem + ".txt"), "w") as f:
                 f.write("\n".join(lines))
             cls_set = {int(l.split()[0]) for l in lines}
-            for l in lines:
-                label_counts[sp][int(l.split()[0])] += 1
+            for l in lines: label_counts[sp][int(l.split()[0])] += 1
             if sp == "train":
                 converted_train.append((stem, cls_set))
         except Exception:
             skipped += 1
 
-# Oversample minority classes: bike / bus  (identical to original)
+# Oversample minority classes: bike / bus
 os_count = 0
 for stem, cls_set in converted_train:
     if {1, 2} & cls_set:
@@ -331,9 +296,7 @@ for stem, cls_set in converted_train:
             di = WORK_DIR / "images" / "train" / f"{stem}_os{i}.jpg"
             dl = WORK_DIR / "labels" / "train" / f"{stem}_os{i}.txt"
             if not di.exists():
-                shutil.copy2(si, di)
-                shutil.copy2(sl, dl)
-                os_count += 1
+                shutil.copy2(si, di); shutil.copy2(sl, dl); os_count += 1
 
 train_n = len(list((WORK_DIR / "images" / "train").iterdir()))
 valid_n = len(list((WORK_DIR / "images" / "valid").iterdir()))
@@ -342,10 +305,7 @@ print(f"  Oversampled (bike/bus): {os_count} extra copies")
 
 print("\n  📊 Class distribution:")
 for sp in ("train", "valid"):
-    dist = " | ".join(
-        f"{id2name.get(c, c)}: {n}"
-        for c, n in sorted(label_counts[sp].items())
-    )
+    dist = " | ".join(f"{id2name.get(c,c)}: {n}" for c,n in sorted(label_counts[sp].items()))
     print(f"  [{sp}] {dist}")
 
 if unrecognized:
@@ -362,13 +322,7 @@ if train_n == 0:
 print("\n[4/6] Writing data.yaml ...")
 yaml_path = WORK_DIR / "data.yaml"
 with open(yaml_path, "w") as f:
-    f.write(
-        f"path: {WORK_DIR.as_posix()}\n"
-        f"train: images/train\n"
-        f"val: images/valid\n"
-        f"nc: 4\n"
-        f"names: {CLASS_NAMES}\n"
-    )
+    f.write(f"path: {WORK_DIR.as_posix()}\ntrain: images/train\nval: images/valid\nnc: 4\nnames: {CLASS_NAMES}\n")
 print(f"  ✅ {yaml_path}")
 
 # ============================================================
@@ -379,51 +333,51 @@ model = YOLO("yolov8m.pt")
 print("  ✅ yolov8m loaded")
 
 # ============================================================
-#  TRAIN  (all hyperparameters identical to original)
+#  TRAIN
 # ============================================================
 print("\n[6/6] Training ...")
 print("=" * 55)
 
 model.train(
-    data             = str(yaml_path),
-    epochs           = EPOCHS,
-    imgsz            = IMG_SIZE,
-    batch            = BATCH,
-    name             = "BTF_YOLOv8m",
-    project          = str(RUNS_DIR),
-    device           = DEVICE,
-    patience         = 20,
-    save             = True,
-    plots            = True,
-    workers          = 2,
-    exist_ok         = True,
-    optimizer        = "auto",
-    lr0              = 0.01,
-    lrf              = 0.005,
-    momentum         = 0.937,
-    weight_decay     = 0.0005,
-    warmup_epochs    = 5.0,
-    warmup_momentum  = 0.8,
-    warmup_bias_lr   = 0.1,
-    box              = 7.5,
-    cls              = 0.5,
-    dfl              = 1.5,
-    mosaic           = 1.0,
-    mixup            = 0.2,
-    copy_paste       = 0.0,
-    degrees          = 10.0,
-    translate        = 0.15,
-    scale            = 0.6,
-    shear            = 2.0,
-    perspective      = 0.0001,
-    flipud           = 0.01,
-    fliplr           = 0.5,
-    hsv_h            = 0.015,
-    hsv_s            = 0.7,
-    hsv_v            = 0.4,
-    close_mosaic     = 15,
-    nbs              = 64,
-    amp              = False,
+    data            = str(yaml_path),
+    epochs          = EPOCHS,
+    imgsz           = IMG_SIZE,
+    batch           = BATCH,
+    name            = "BTF_YOLOv8m",
+    project         = str(RUNS_DIR),
+    device          = DEVICE,
+    patience        = 20,
+    save            = True,
+    plots           = True,
+    workers         = 2,
+    exist_ok        = True,
+    optimizer       = "auto",
+    lr0             = 0.01,
+    lrf             = 0.005,
+    momentum        = 0.937,
+    weight_decay    = 0.0005,
+    warmup_epochs   = 5.0,
+    warmup_momentum = 0.8,
+    warmup_bias_lr  = 0.1,
+    box             = 7.5,
+    cls             = 0.5,
+    dfl             = 1.5,
+    mosaic          = 1.0,
+    mixup           = 0.2,
+    copy_paste      = 0.0,
+    degrees         = 10.0,
+    translate       = 0.15,
+    scale           = 0.6,
+    shear           = 2.0,
+    perspective     = 0.0001,
+    flipud          = 0.01,
+    fliplr          = 0.5,
+    hsv_h           = 0.015,
+    hsv_s           = 0.7,
+    hsv_v           = 0.4,
+    close_mosaic    = 15,
+    nbs             = 64,
+    amp             = False,
 )
 
 best_pt = RUNS_DIR / "BTF_YOLOv8m" / "weights" / "best.pt"
@@ -432,7 +386,7 @@ if not best_pt.exists():
 print(f"\n✅ Training complete: {best_pt}")
 
 # ============================================================
-#  EVALUATE  (identical to original)
+#  EVALUATE
 # ============================================================
 print("\n" + "=" * 55)
 print("  ACCURACY EVALUATION")
@@ -440,18 +394,12 @@ print("=" * 55)
 
 model   = YOLO(str(best_pt))
 metrics = model.val(
-    data      = str(yaml_path),
-    imgsz     = IMG_SIZE,
-    batch     = BATCH,
-    conf      = 0.001,
-    iou       = 0.50,
-    device    = DEVICE,
-    plots     = True,
-    save_json = True,
-)
+    data=str(yaml_path), imgsz=IMG_SIZE, batch=BATCH,
+    conf=0.001, iou=0.50, device=DEVICE,
+    plots=True, save_json=True)
 
-P    = float(metrics.box.mp   if metrics.box.mp   else 0)
-R    = float(metrics.box.mr   if metrics.box.mr   else 0)
+P    = float(metrics.box.mp    if metrics.box.mp    else 0)
+R    = float(metrics.box.mr    if metrics.box.mr    else 0)
 m50  = float(metrics.box.map50 if metrics.box.map50 else 0)
 m595 = float(metrics.box.map   if metrics.box.map   else 0)
 F1   = 2 * P * R / (P + R + 1e-9)
@@ -469,8 +417,8 @@ print("=" * 55)
 print(f"\n  {'Class':<12} {'Precision':>10} {'Recall':>10} {'mAP50':>10} {'mAP50-95':>10}")
 print("  " + "-" * 55)
 
-for i, ci in enumerate(range(len(CLASS_NAMES))):
-    n = CLASS_NAMES[ci]
+for i in range(len(CLASS_NAMES)):
+    n = CLASS_NAMES[i]
     try:   p_c = float(metrics.box.p[i])
     except: p_c = 0
     try:   r_c = float(metrics.box.r[i])
@@ -486,66 +434,44 @@ print(f"  {'MEAN':<12} {P:>10.4f} {R:>10.4f} {m50:>10.4f} {m595:>10.4f}")
 print("=" * 55)
 
 # ============================================================
-#  PLOTS  (saved to project root alongside the script)
+#  PLOTS
 # ============================================================
 pngs = sorted(glob.glob(str(RUNS_DIR / "BTF_YOLOv8m" / "*.png")))
 if pngs:
-    cols = 2
-    rows = (len(pngs) + 1) // cols
+    cols = 2; rows = (len(pngs) + 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(18, rows * 7))
     axes = axes.flatten()
     for ax, p in zip(axes, pngs):
-        try:
-            ax.imshow(mpimg.imread(p))
-            ax.set_title(os.path.basename(p), fontsize=11)
-        except Exception:
-            pass
+        try: ax.imshow(mpimg.imread(p)); ax.set_title(os.path.basename(p), fontsize=11)
+        except: pass
         ax.axis("off")
-    for ax in axes[len(pngs):]:
-        ax.axis("off")
+    for ax in axes[len(pngs):]: ax.axis("off")
     plt.suptitle("YOLOv8m — Phase 1 Results", fontsize=14)
     plt.tight_layout()
-    out_plots = OUTPUT_DIR / "Phase1_plots.png"
-    plt.savefig(str(out_plots), dpi=100, bbox_inches="tight")
+    plt.savefig(str(SCRIPT_DIR / "Phase1_plots.png"), dpi=100, bbox_inches="tight")
     plt.close()
-    print(f"\n✅ Plots saved → {out_plots}")
+    print("\n✅ Plots saved → Phase1_plots.png")
 
 val_imgs = glob.glob(str(WORK_DIR / "images" / "valid" / "*.jpg"))
 if val_imgs:
     sample = random.sample(val_imgs, min(6, len(val_imgs)))
-    model.predict(
-        source  = sample,
-        imgsz   = IMG_SIZE,
-        conf    = 0.25,
-        device  = DEVICE,
-        save    = True,
-        project = str(RUNS_DIR / "predictions"),
-        name    = "sample",
-        exist_ok= True,
-        verbose = False,
-    )
-    preds = sorted(
-        glob.glob(str(RUNS_DIR / "predictions" / "sample" / "*.jpg"))
-    )[:6]
+    model.predict(source=sample, imgsz=IMG_SIZE, conf=0.25, device=DEVICE,
+                  save=True, project=str(RUNS_DIR / "predictions"),
+                  name="sample", exist_ok=True, verbose=False)
+    preds = sorted(glob.glob(str(RUNS_DIR / "predictions" / "sample" / "*.jpg")))[:6]
     if preds:
         fig, axes = plt.subplots(2, 3, figsize=(18, 10))
         for ax, p in zip(axes.flatten(), preds):
-            try:
-                ax.imshow(mpimg.imread(p))
-                ax.set_title(os.path.basename(p), fontsize=8)
-            except Exception:
-                pass
+            try: ax.imshow(mpimg.imread(p)); ax.set_title(os.path.basename(p), fontsize=8)
+            except: pass
             ax.axis("off")
         plt.suptitle("YOLOv8m Phase 1 — Sample Predictions", fontsize=13)
         plt.tight_layout()
-        out_preds = OUTPUT_DIR / "Phase1_predictions.png"
-        plt.savefig(str(out_preds), dpi=100, bbox_inches="tight")
+        plt.savefig(str(SCRIPT_DIR / "Phase1_predictions.png"), dpi=100, bbox_inches="tight")
         plt.close()
-        print(f"✅ Predictions saved → {out_preds}")
+        print("✅ Predictions saved → Phase1_predictions.png")
 
-# Copy best weights to project root for easy access
-dest_weights = OUTPUT_DIR / "BTF_YOLOv8m_best.pt"
-shutil.copy(str(best_pt), str(dest_weights))
-print(f"\n✅ best.pt → {dest_weights}")
+shutil.copy(str(best_pt), str(SCRIPT_DIR / "BTF_YOLOv8m_best.pt"))
+print(f"\n✅ best.pt → BTF_YOLOv8m_best.pt")
 print("\n🏁 Phase 1 complete!")
 print("   Share the per-class table → Phase 2 will fix weak classes.")
